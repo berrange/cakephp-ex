@@ -1,115 +1,169 @@
-CakePHP Sample App on OpenShift
-===============================
+# Some GitHub webhooks
 
-This is a quickstart CakePHP application for OpenShift v3 that you can use as a starting point to develop your own application and deploy it on an [OpenShift](https://github.com/openshift/origin) cluster.
+These are simple, pure-PHP Github webhooks.
 
-If you'd like to install it, follow [these directions](https://github.com/openshift/cakephp-ex/blob/master/README.md#installation).  
+# Why does this project exist?
 
-The steps in this document assume that you have access to an OpenShift deployment that you can deploy applications on.
+This project exists as simple, standalone PHP scripts so that you can
+run them in web hosting environments where you are unable to run
+additional daemons.  For example, many simple web hosting packages
+allow arbitrary PHP web pages, but do not allow running standalone
+processes (such as a Ruby / Sinatra process) for more than a short
+period of time.
 
-OpenShift Considerations
-------------------------
-These are some special considerations you may need to keep in mind when running your application on OpenShift.
+# Installation
 
-###Security
-Since the quickstarts are shared code, we had to take special consideration to ensure that security related configuration variable values are unique across applications. To accomplish this, we modified some of the configuration files. Namely we changed Security.salt and Security.cipherSeed values in the app/Config/core.php config file. Those values are now generated from the application template as CAKEPHP_SECURITY_SALT and CAKEPHP_SECURITY_CIPHER_SEED. Also the secret token is generated in the template as CAKEPHP_SECRET_TOKEN. From these values the session hashes are generated. Now instead of using the same default values, OpenShift can generate these values using the generate from logic defined within the instant application's template.
+Installation is comprised of two parts:
 
-###Installation:
-These steps assume your OpenShift deployment has the default set of ImageStreams defined.  Instructions for installing the default ImageStreams are available [here](https://docs.openshift.org/latest/install_config/imagestreams_templates.html#creating-image-streams-for-openshift-images).  If you are defining the set of ImageStreams now, remember to pass in the proper cluster-admin credentials and to create the ImageStreams in the 'openshift' namespace.
+1. Installation on the web server
+1. Installation at github.com or GitHub Enterprise
 
-1. Fork a copy of [cakephp-ex](https://github.com/openshift/cakephp-ex)
-2. Clone your repository to your development machine and cd to the repository directory
-3. Add a PHP application from the provided template and specify the source url to be your forked repo  
+## Installation on the web server
 
-		$ oc new-app openshift/templates/cakephp.json -p SOURCE_REPOSITORY_URL=<your repository location>
+1. Copy the source files to a folder in a docroot somewhere.
+   * Edit the `*-config.inc` files to reflect the configuration that
+     you want.  There are comments in these files explaining each of
+     the options.
+   * You will need to set the name(s) of the GitHub repos for which
+     you want the script to respond.
+   * You will also need to set the `auth_token` value to be the
+     Personal Access Token (PAT) of a user who has commit access to each of
+     these repos.
+     * You can generate a Github PAT by visiting
+       https://github.com/settings/tokens and clicking the "Generate
+       new tokens" button in the top right (or
+       https://YOUR_GHE_SERVER/settings/tokens).
+     * For public repositories, the only permission that this PAT
+       needs is `repo:status`.
+     * For private repositories, it is important to select the outer
+       `repo` permission ("full control of private repositories").
+       This will automatically check all the sub-repo permissions as
+       well.  It is *not* sufficient to simply check all the sub-repo
+       permissions and leave the outer `repo` status unchecked.
+1. Configure your web server to deny client access to the
+   `*.inc` files.
+   * ***THIS IS NOT OPTIONAL***
+   * Failure to do so will expose your PAT!
+   * For example, you can create a `.htaccess` file in the same
+     directory to restrict access to your `*.inc` files containing:
+```xml
+<Files "*\.inc">
+    Order allow,deny
+    Deny from all
+    Satisfy all
+</Files>
+```
 
-4. Depending on the state of your system, and whether additional items need to be downloaded, it may take around a minute for your build to be started automatically.  If you do not want to wait, run
+## Installation at github.com / GitHub Enterprise
 
-		$ oc start-build cakephp-example
+1. On Github.com, create a custom webhook for your Git repo:
+   * The URL should be the URL of either of your newly-installed `.php` files (e.g., `https://SERVER_NAME/PATH/signed-off-by-checker.php`).
+   * The content type should be `application/json`.
+   * Select "Let me select individual events."
+     * Check the "Pull request" event.
+     * You can choose to leave the "Push" event checked or not.
+   * Make the webhook active.
+1. When you create a webhook at github.com / your GHE server, it should send a "ping" request to the webhook to make sure it is correct.
+   * On your git repository's webhooks page, click on your webhook.
+   * On the resulting page, scroll down to the "Recent Deliveries" section.  The very first delivery will be the "ping" event.
+   * Click on the first delivery and check that the response code is 200.
+   * If everything is working properly, the output body should say
+     `Hello, Github ping!  I'm here!`.
+   * If you do not see the ping results, see below.
+1. Create a pull request to your Git repository.
+    * If all goes well, if your commits meet the criteria of the
+      webhook (e.g., if they all contain `Signed-off-by` tokens), you
+      should get a green check for each commit in the PR.
+   * If any commit(s) do *not* meet the webhook criteria, then that
+     that(those) commit(s) should get a red X, and the *last* commit
+     should also get a red X.
+   * If you don't see the CI results on the pull request, see below.
 
-5. Once the build is running, watch your build progress  
+## Troubleshooting
 
-		$ oc logs build/cakephp-example-1
+Common problems include:
 
-6. Wait for cakephp-example pods to start up (this can take a few minutes):  
+* Not seeing the Github ping.
+  * Check that the URL in your Github webhook is correct.
+  * If using an `https` URL, check that the certificate is
+    authenticate-able by Github (i.e., it's signed by a recognizable
+    CA, etc.)
+  * Try test surfing to the URL of your Github webhook yourself and
+    make sure it is working properly.  You should see:
+```
+Use /PATH/*.php as a WebHook URL in your Github repository settings.
+````
 
-		$ oc get pods -w
+* Not seeing the checker's results in the CI block on the PR
+  * Ensure that the PAT used is from a user that has commit access to
+    the repository.  If the PHP script is running properly and the
+    results don't appear in the PR CI section, *this is almost always
+    the problem*.
+  * Check the "Recent deliveries" section of your webhook's
+    configuration page and check the response body output from your
+    delivery.
+  * Click on a delivery hash to expand it; click the Response tab to
+    see the output from the PHP script.
+  * If all goes well, the last line of output should show a message
+    indicating that it has seen all the commits in the PR and all of
+    them passed.
 
+# The Webhooks
 
-	Sample output:  
+There are currently two webhooks available:
 
-	       NAME                      READY     REASON         RESTARTS   AGE
-	       cakephp-example-1-build   0/1       ExitCode:0     0          8m
-	       cakephp-example-1-pytud   1/1       Running        0          2m
+1. "Signed-off-by" checker
+2. Committer and author email checker
 
+## Signed-off-by checker
 
-7. Check the IP and port the cakephp-example service is running on:  
+This webhook does a simple check: it makes sure that each commit in
+the PR contains the `Signed-off-by` token.  If a commit does not
+contain this token, it fails the check.
 
-		$ oc get svc
+### Expanding the signed-off-by checker
 
-	Sample output:  
+You can expand this webhook easily.
 
-	       NAME              LABELS                     SELECTOR               IP(S)           PORT(S)
-	       cakephp-example   template=cakephp-example   name=cakephp-example   172.30.97.123   8080/TCP
+For example, it may be desirable to look for specific signoffs.  E.g.,
+you might want to look for signoffs from specific team leads when
+junior developers make PRs.
 
-In this case, the IP for cakephp-example is 172.30.97.123 and it is on port 8080.  
-*Note*: you can also get this information from the web console.
+## Committer and author email checker
 
-###Debugging Unexpected Failures
+This webhook checks for common errors in commit email addresses, and
+is easily expandable to include your own checks.
 
-Review some of the common tips and suggestions [here](https://github.com/openshift/origin/blob/master/docs/debugging-openshift.md).
+By default, this webhook checks that the commiter and author email addresses on each command do not contain:
 
-###Installation: With MySQL
-1. Follow the steps for the Manual Installation above for all but step 3, instead use step 2 below.  
-  - Note: The output in steps 5-6 may also display information about your database.
-2. Add a PHP application from the cakephp-mysql template and specify the source url to be your forked repo  
+1. `root@`
+1. `localhost`
+1. `localdomain`
 
-		$ oc new-app openshift/templates/cakephp-mysql.json -p SOURCE_REPOSITORY_URL=<your repository location>
+These three checks tend to catch newbie Git users who have forgotten
+to set their username and email address in their Git configuration.
 
+### Expanding the email checker
 
-###Adding Webhooks and Making Code Changes
-Since OpenShift V3 does not provide a git repository out of the box, you can configure your github repository to make a webhook call whenever you push your code.
+It may also be desirable to ensure other qualities about the committer
+and/or author emails.  For example:
 
-1. From the Web Console homepage, navigate to your project
-2. Click on Browse > Builds
-3. Click the link with your BuildConfig name
-4. Click the Configuration tab
-5. Click the "Copy to clipboard" icon to the right of the "GitHub webhook URL" field
-6. Navigate to your repository on GitHub and click on repository settings > webhooks > Add webhook
-7. Paste your webhook URL provided by OpenShift
-8. Leave the defaults for the remaining fields - That's it!
-9. After you save your webhook, if you refresh your settings page you can see the status of the ping that Github sent to OpenShift to verify it can reach the server.  
+1. Ensure that the committer is a current employee in your
+   organization (we do this in my group at work).
+1. Ensure that both the author and committer use correct email address
+   (e.g., `username@mycompany.com` instead of
+   `username@some.internal.machine.name.mycompany.com`).
 
-###Enabling the Database example
-In order to access the example CakePHP home page, which contains application stats including database connectivity, you have to go into the app/View/Layouts/ directory, remove the default.ctp and after that rename default.ctp.default into default.ctp`.
+And so on.
 
-It will also be necessary to update your application to talk to your database back-end. The app/Config/database.php file used by CakePHP was set up in such a way that it will accept environment variables for your connection information that you pass to it. Once an administrator has created a MySQL database service for you to connect with you can add the following environment variables to your deploymentConfig to ensure all your cakephp-example pods have access to these environment variables. Note: the cakephp-mysql.json template creates the DB service and environment variables for you.
+# History
 
-You will then need to rebuild the application.  This is done via either a `oc start-build` command, or through the web console, or a webhook trigger in github initiating a build after the code changes are pushed.
+These two GitHub webhooks started their lives in separate GitHub
+repositories:
 
-### Hot Deploy
+* https://github.com/jsquyres/signed-off-by-github-webhook
+* https://github.com/jsquyres/email-checker-github-webhook
 
-In order to immediately pick up changes made in your application source code, you need to run your built image with the `OPCACHE_REVALIDATE_FREQ=0` parameter to the [oc new-app](https://docs.openshift.org/latest/cli_reference/basic_cli_operations.html#basic-cli-operations) command, while performing the [installation steps](https://github.com/openshift/cakephp-ex#installation) described in this README.
-
-	$ oc new-app openshift/templates/cakephp-mysql.json -p OPCACHE_REVALIDATE_FREQ=0
-
-Hot deploy works out of the box in the php image used with this example.
-
-To change your source code in the running container you need to [oc rsh](https://docs.openshift.org/latest/cli_reference/basic_cli_operations.html#troubleshooting-and-debugging-cli-operations) into it.
-
-	$ oc rsh <POD_ID>
-
-After you [oc rsh](https://docs.openshift.org/latest/cli_reference/basic_cli_operations.html#troubleshooting-and-debugging-cli-operations) into the running container, your current directory is set to `/opt/app-root/src`, where the source code is located.
-
-###Source repository layout
-
-You do not need to change anything in your existing PHP project's repository.
-However, if these files exist they will affect the behavior of the build process:
-
-* **composer.json**
-
-  List of dependencies to be installed with `composer`. The format is documented
-  [here](https://getcomposer.org/doc/04-schema.md).
-
-###License
-This code is dedicated to the public domain to the maximum extent permitted by applicable law, pursuant to [CC0](http://creativecommons.org/publicdomain/zero/1.0/).
+However, a huge chunk of code was shared between the two of them, so
+it made sense to unify the two into a single code base and a single
+repo.
